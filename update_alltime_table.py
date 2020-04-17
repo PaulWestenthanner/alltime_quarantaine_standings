@@ -16,7 +16,7 @@ BUNDESLIGA_REGEXP = r"|".join(["(1. DE-Quarantäne Team Battle)",
                                "([0-9]+\. ?DE[ -]Quarantäne Teams 1-10)",
                                "(5. Quarantäne-Liga Teams 1-10)",
                                "([0-9]+\. ?Quarantäne-Bundesliga)",
-                               "([0-9]+\. ?Quarantäne-Welt-Bundesliga)",
+                               "([0-9]+\. ?Quarantäne-Welt-Bundesliga ?$)",
                                ])
 SHEETNAME = "Ewige Quarantäne-Bundesligatabelle"
 
