@@ -1,7 +1,9 @@
 import json
 import os
 import re
+import urllib
 import urllib.request
+import time
 
 from bs4 import BeautifulSoup
 import gspread
@@ -19,6 +21,7 @@ BUNDESLIGA_REGEXP = r"|".join(["(1. DE-Quarantäne Team Battle)",
                                "([0-9]+\. ?Quarantäne-Welt-Bundesliga ?$)",
                                ])
 SHEETNAME = "Ewige Quarantäne-Bundesligatabelle"
+TEAM_NAME_DICT = {}  # store team names in global variable in order to minimize api calls
 
 
 def get_bundesliga_tournaments():
@@ -55,29 +58,43 @@ def get_individual_results(tournament_id):
     player_results = api_response.read()
     return pd.DataFrame([json.loads(pl) for pl in player_results.splitlines()])
 
+def call_api(api_url):
+    """
+    call api or wait a minute and then call api.
+    This is in order not to get a too many requests error.
+    This way lichess keeps its API responsive
+    """
+    try:
+        return urllib.request.urlopen(api_url)
+    except urllib.error.HTTPError:
+        print("waiting one minute for API to be responsive again")
+        time.sleep(61)
+        return call_api(api_url)
+
+def get_team_name(team_id):
+    try:
+        return TEAM_NAME_DICT[team_id]
+    except KeyError:
+        api_url = f"https://lichess.org/api/team/{team_id}"
+        api_response = call_api(api_url)
+        team_name = json.loads(api_response.read())["name"]
+        TEAM_NAME_DICT[team_id] = team_name
+        return team_name
+
 
 def get_team_results(tournament_url):
     """
-    Unfortunately the API does not provide team results, hence we need to go the pedestrian way and
-    scrape it by hand
+    Use API to get team results
     """
-    tournament_response = urllib.request.urlopen(tournament_url)
-    tournament_html = tournament_response.read()
-    tournament_soup = BeautifulSoup(tournament_html, 'html.parser')
-    # there is a string before the json that needs to be deleted.
-    # This seems a little clumsy and error prone but there is no other way when parsing manually
-    str_to_delete = "lichess.tournament="
-    tournament_strings = [script.text for script in tournament_soup.find_all("script")
-                          if str_to_delete in script.text]
-    tournament_strings.sort(key=lambda s: len(s))
-    tournament_string = tournament_strings[-1]
-    tournament_json = json.loads(tournament_string[tournament_string.find(str_to_delete)+len(str_to_delete):])
-    team_name_dict = tournament_json["data"]["teamBattle"]["teams"]
+    
+    tournament_id = tournament_url.split("/")[-1]
+    api_url = f"https://lichess.org/api/tournament/{tournament_id}/teams"
+    api_response = call_api(api_url)
+    team_results = json.loads(api_response.read())["teams"]
     relevant_keys = ["rank", "id", "score"]
-    team_results = [{k: v for k, v in team_dict.items() if k in relevant_keys} for team_dict in
-                    tournament_json["data"]["teamStanding"]]
-    teams_df = pd.DataFrame(team_results)
-    teams_df["Team"] = teams_df["id"].map(team_name_dict)
+    team_results = [[team_result[col] for col in relevant_keys] for team_result in team_results]
+    teams_df = pd.DataFrame(team_results, columns=relevant_keys)
+    teams_df["Team"] = teams_df["id"].map(get_team_name)
     return teams_df
 
 
