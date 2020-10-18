@@ -19,6 +19,7 @@ BUNDESLIGA_REGEXP = r"|".join(["(1. DE-Quarantäne Team Battle)",
                                "(5. Quarantäne-Liga Teams 1-10)",
                                "([0-9]+\. ?Quarantäne-Bundesliga ?$)",
                                "([0-9]+\. ?Quarantäne-Welt-Bundesliga ?$)",
+                               "([0-9]+\. ?Lichess Quarantäne-Bundesliga ?$)"
                                ])
 SHEETNAME = "Ewige Quarantäne-Bundesligatabelle"
 TEAM_NAME_DICT = {}  # store team names in global variable in order to minimize api calls
