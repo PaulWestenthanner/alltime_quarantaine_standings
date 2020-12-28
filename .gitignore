@@ -133,3 +133,7 @@ dmypy.json
 
 # config file for connecting to google spreadsheet
 gspread_config.json
+
+# resources for speeding up calculations
+resources/*.csv
+resources/*.json

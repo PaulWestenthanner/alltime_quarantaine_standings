@@ -1,9 +1,11 @@
+import http
 import json
 import os
 import re
 import urllib
 import urllib.request
 import time
+from typing import Dict, List
 
 from bs4 import BeautifulSoup
 import gspread
@@ -22,10 +24,21 @@ BUNDESLIGA_REGEXP = r"|".join(["(1. DE-Quarantäne Team Battle)",
                                "([0-9]+\. ?Lichess Quarantäne-Bundesliga ?$)"
                                ])
 SHEETNAME = "Ewige Quarantäne-Bundesligatabelle"
-TEAM_NAME_DICT = {}  # store team names in global variable in order to minimize api calls
+TEAM_NAMES_PATH = os.path.join(os.path.dirname(__file__), "resources", "team_names.json")
+
+def init_team_name_dict() -> Dict[str, str]:
+    try:
+        with open(TEAM_NAMES_PATH, "r") as f:
+            team_name_dict = json.load(f)
+    except FileNotFoundError:
+        team_name_dict = {}
+    return team_name_dict
+
+# store team names in global variable in order to minimize api calls
+TEAM_NAME_DICT = init_team_name_dict()
 
 
-def get_bundesliga_tournaments():
+def get_bundesliga_tournaments() -> List[List[str]]:
     """
     scrape rochadeeuropa.com in order to find lichess quarantaine bundesliga matches.
     Rochade URL and regex to determine which tournament was actually a bundesliga tournaments are
@@ -50,7 +63,7 @@ def get_bundesliga_tournaments():
     return buli_tournaments
 
 
-def get_individual_results(tournament_id):
+def get_individual_results(tournament_id: str) -> pd.DataFrame:
     """
     For individual results for a given tournament we use lichess API
     """
@@ -59,7 +72,7 @@ def get_individual_results(tournament_id):
     player_results = api_response.read()
     return pd.DataFrame([json.loads(pl) for pl in player_results.splitlines()])
 
-def call_api(api_url):
+def call_api(api_url: str) -> http.client.HTTPResponse:
     """
     call api or wait a minute and then call api.
     This is in order not to get a too many requests error.
@@ -72,7 +85,13 @@ def call_api(api_url):
         time.sleep(61)
         return call_api(api_url)
 
-def get_team_name(team_id):
+def get_team_name(team_id: str) -> str:
+    """ Get nice-to-display name of a team.
+
+    Either read from team name dict which saves time or call API to get the name.
+    :param team_id: not so nice to read lichess team id.
+    :return: clear display name of a team.
+    """
     try:
         return TEAM_NAME_DICT[team_id]
     except KeyError:
@@ -83,18 +102,22 @@ def get_team_name(team_id):
         return team_name
 
 
-def get_team_results(tournament_url):
-    """
-    Use API to get team results
+def get_team_results(tournament_url: str) -> pd.DataFrame:
+    """ Use API to get team results or read from disk to save time. If not available on disk API will be called.
     """
     
     tournament_id = tournament_url.split("/")[-1]
-    api_url = f"https://lichess.org/api/tournament/{tournament_id}/teams"
-    api_response = call_api(api_url)
-    team_results = json.loads(api_response.read())["teams"]
-    relevant_keys = ["rank", "id", "score"]
-    team_results = [[team_result[col] for col in relevant_keys] for team_result in team_results]
-    teams_df = pd.DataFrame(team_results, columns=relevant_keys)
+    result_path = os.path.join(os.path.dirname(__file__), "resources", f"{tournament_id}.csv")
+    try:
+        teams_df = pd.read_csv(result_path)
+    except FileNotFoundError:
+        api_url = f"https://lichess.org/api/tournament/{tournament_id}/teams"
+        api_response = call_api(api_url)
+        team_results = json.loads(api_response.read())["teams"]
+        relevant_keys = ["rank", "id", "score"]
+        team_results = [[team_result[col] for col in relevant_keys] for team_result in team_results]
+        teams_df = pd.DataFrame(team_results, columns=relevant_keys)
+        teams_df.to_csv(result_path)
     teams_df["Team"] = teams_df["id"].map(get_team_name)
     return teams_df
 
@@ -138,7 +161,7 @@ def connect_to_spreadsheet():
     return gc
 
 
-def write_to_spreadsheet(df):
+def write_to_spreadsheet(df: pd.DataFrame) -> None:
     sheet_connection = connect_to_spreadsheet()
     ws = sheet_connection.open(SHEETNAME).worksheet("Sheet1")
     gd.set_with_dataframe(ws, df)
@@ -157,6 +180,9 @@ def run():
 
     all_time_teams = build_teams_alltime(team_df)
     write_to_spreadsheet(all_time_teams.round({"Durchschnittsplatzierung": 1}))
+    # save updated version of team name dict.
+    with open(TEAM_NAMES_PATH, "w") as f:
+        json.dump(TEAM_NAME_DICT, f)
 
 
 if __name__ == "__main__":
