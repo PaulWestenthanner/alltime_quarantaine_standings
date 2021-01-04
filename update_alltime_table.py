@@ -117,6 +117,11 @@ def get_team_results(tournament_url: str) -> pd.DataFrame:
         relevant_keys = ["rank", "id", "score"]
         team_results = [[team_result[col] for col in relevant_keys] for team_result in team_results]
         teams_df = pd.DataFrame(team_results, columns=relevant_keys)
+        date_api_url = f"https://lichess.org/api/tournament/{tournament_id}"
+        api_response = call_api(date_api_url)
+        # truncate to date, store as string since we write it as csv
+        tournament_date = json.loads(api_response.read())["startsAt"][:10]
+        teams_df["date"] = tournament_date
         teams_df.to_csv(result_path)
     teams_df["Team"] = teams_df["id"].map(get_team_name)
     return teams_df
@@ -161,9 +166,9 @@ def connect_to_spreadsheet():
     return gc
 
 
-def write_to_spreadsheet(df: pd.DataFrame) -> None:
+def write_to_spreadsheet(df: pd.DataFrame, sheetname: str) -> None:
     sheet_connection = connect_to_spreadsheet()
-    ws = sheet_connection.open(SHEETNAME).worksheet("Sheet1")
+    ws = sheet_connection.open(SHEETNAME).worksheet(sheetname)
     gd.set_with_dataframe(ws, df)
 
 
@@ -178,8 +183,15 @@ def run():
         # for now only export teams df
         # individual_df = individual_df.append(get_individual_results(tournament[4].split("/")[-1]))
 
-    all_time_teams = build_teams_alltime(team_df)
-    write_to_spreadsheet(all_time_teams.round({"Durchschnittsplatzierung": 1}))
+    alltime_tables = [
+        ("Total", lambda x: True),
+        ("Table 2020", lambda date_str: date_str[:4] == "2020"),
+        ("Table 2021", lambda date_str: date_str[:4] == "2021"),
+    ]
+    for sheet, filter_function in alltime_tables:
+        all_time_teams = build_teams_alltime(team_df[team_df["date"].map(filter_function)])
+        write_to_spreadsheet(all_time_teams.round({"Durchschnittsplatzierung": 1}), sheet)
+
     # save updated version of team name dict.
     with open(TEAM_NAMES_PATH, "w") as f:
         json.dump(TEAM_NAME_DICT, f)
